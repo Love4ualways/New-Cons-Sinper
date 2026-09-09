@@ -1,0 +1,92 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find ZIP file
+        run: |
+          echo "Files in repository:"
+          find . -maxdepth 2 -type f | sort
+
+      - name: Unzip workspace
+        run: |
+          mkdir -p workspace
+
+          ZIP_FILE=$(find . -maxdepth 2 -type f \
+            \( -name "Ss3EKcvra2pWvY85-grok-workspace.zip" -o -name "*.zip" \) \
+            | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file found."
+            exit 1
+          fi
+
+          echo "Using: $ZIP_FILE"
+          unzip -o "$ZIP_FILE" -d workspace
+
+      - name: Show extracted files
+        run: |
+          echo "Extracted project:"
+          find workspace -maxdepth 3 -type f | sort | head -300
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Find Android project
+        run: |
+          echo "Searching for Gradle project..."
+
+          GRADLE_DIR=$(find workspace -name gradlew -type f -print -quit | xargs -r dirname)
+
+          if [ -z "$GRADLE_DIR" ]; then
+            echo "ERROR: Could not find gradlew."
+            echo "The ZIP may not contain an Android/Gradle project."
+            exit 1
+          fi
+
+          echo "Android project found at:"
+          echo "$GRADLE_DIR"
+
+          echo "$GRADLE_DIR" > android_project_dir.txt
+
+      - name: Make Gradle executable
+        run: |
+          GRADLE_DIR=$(cat android_project_dir.txt)
+          chmod +x "$GRADLE_DIR/gradlew"
+
+      - name: Build debug APK
+        run: |
+          GRADLE_DIR=$(cat android_project_dir.txt)
+          cd "$GRADLE_DIR"
+
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Find APK
+        run: |
+          echo "APK files:"
+          find workspace -type f -name "*.apk" -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: |
+            workspace/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
